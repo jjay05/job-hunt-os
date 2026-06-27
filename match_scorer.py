@@ -1,0 +1,386 @@
+"""
+match_scorer.py — Reads every unscored job from the "Job Hunt OS" sheet,
+calls Claude once per job to score it against the AI and adtech tracks using
+the eval framework rubric, then batch-writes all scores back to the sheet.
+"""
+
+import json
+import os
+import sys
+import time
+from collections import Counter
+from typing import Optional
+
+import anthropic
+from dotenv import load_dotenv
+
+import sheets
+
+# ── 1. Config & secrets ──────────────────────────────────────────────────────
+
+load_dotenv()
+
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+if not ANTHROPIC_API_KEY or ANTHROPIC_API_KEY == "your_key_here":
+    sys.exit("ERROR: Set ANTHROPIC_API_KEY in your .env file. Get it at console.anthropic.com → API Keys.")
+
+BASE = os.path.dirname(__file__)
+
+# Statuses the user owns — scorer never touches these rows
+USER_OWNED_STATUSES = {"applied", "interviewing", "rejected", "skipped"}
+
+# Delay between Claude calls to stay well inside rate limits
+CALL_DELAY_SECONDS = 0.5
+
+# ── 2. Load context files ────────────────────────────────────────────────────
+
+def _load(path: str, label: str) -> str:
+    full = os.path.join(BASE, path)
+    if os.path.exists(full):
+        return open(full).read().strip()
+    print(f"  [warning] {label} not found at {path} — continuing without it.", file=sys.stderr)
+    return ""
+
+context_store    = json.loads(open(os.path.join(BASE, "config", "context_store.json")).read())
+rubric_text      = _load("config/job_fit_eval_framework.md", "eval framework")
+resume_ai        = _load("resume/resume_ai.md",              "AI resume")
+resume_adtech    = _load("resume/resume_adtech.md",          "Adtech resume")
+
+# Guardrails: load from file if it exists, otherwise use inline version
+_guardrails_file = _load("guardrails/guardrails.md", "guardrails file")
+GUARDRAILS = _guardrails_file if _guardrails_file else """
+You are a precise, honest job-fit scorer. Apply these rules without exception:
+
+ACCURACY
+- Never add skills, titles, or experience not explicitly in the candidate's resume
+- Never exaggerate metrics — exact numbers only, traceable to the experience library
+- Never claim a seniority level higher than Associate Director
+- Score honestly; do not inflate scores to flatter
+
+HARD LIMITS (cannot claim)
+- Production Python/TypeScript code, LLM fine-tuning, RAG pipeline hands-on, vector database implementation
+- The chatbot at LG Ads was a Type-1 deterministic read-only diagnostic agent, NOT a probabilistic RAG chatbot
+- Job Hunt OS and Creative Approval Workflow are personal portfolio projects built with Claude Code, not shipped commercial products — cannot claim production deployment at scale, user base, or revenue
+- Can claim: agentic workflow design, LLM orchestration, prompt engineering, guardrails design, eval framework design
+
+SCORING BEHAVIOR
+- If the JD requires something the candidate clearly lacks, flag it explicitly in the reason field
+- If match score confidence is low due to missing or thin JD content, say so explicitly in the reason field
+- Score leniently on domain when AI readiness is high: a strong AI-core role in an adjacent domain (e.g. healthtech, fintech) is NOT an automatic skip — let ai_readiness_score carry the total if the AI fit is genuine
+""".strip()
+
+# Build a compact candidate profile string from context_store
+_cand    = context_store["candidate"]
+_shared  = context_store["shared"]
+_tracks  = context_store["tracks"]
+_company = context_store["company_profile"]
+
+CANDIDATE_PROFILE = f"""
+CANDIDATE: {_cand['name']}
+YOE: {_cand['yoe']} years
+Current status: {_cand['status']}
+Location: {_cand['location']}
+Locations OK: {', '.join(_shared['locations'])}
+Remote preference: {_shared['remote_preference']}
+Salary floor: ${_shared['salary']['tc_floor']:,} TC
+Seniority band: {', '.join(_shared['seniority_band'])}
+Company preference: {_company['stage']}
+Avoid: {_company['avoid']}
+Dream tier: {', '.join(_company['dream_tier'])}
+
+AI TRACK positioning: {_tracks['ai']['positioning']}
+AI TRACK must-have signals: {', '.join(_tracks['ai']['must_have_signals'])}
+AI TRACK dealbreakers: {'; '.join(_tracks['ai']['dealbreakers'])}
+
+ADTECH TRACK positioning: {_tracks['adtech']['positioning']}
+ADTECH TRACK must-have signals: {', '.join(_tracks['adtech']['must_have_signals'])}
+ADTECH TRACK dealbreakers: {'; '.join(_tracks['adtech']['dealbreakers'])}
+""".strip()
+
+RESUME_SECTION = ""
+if resume_ai:
+    RESUME_SECTION += f"\n\n--- RESUME VERSION B (AI / Builder track) ---\n{resume_ai}"
+if resume_adtech:
+    RESUME_SECTION += f"\n\n--- RESUME VERSION A (Adtech track) ---\n{resume_adtech}"
+if not RESUME_SECTION:
+    RESUME_SECTION = "\n\n[Resumes not yet on disk — score from candidate profile above]"
+
+# ── 3. Claude scoring ─────────────────────────────────────────────────────────
+
+client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+JSON_SCHEMA = """
+Return ONLY a valid JSON object with exactly these keys. No markdown fences, no prose:
+
+{
+  "ai_score":           <int 0-3, AI Readiness dimension score>,
+  "adtech_score":       <int 0-3, Adtech Domain fit score>,
+  "domain_score":       <int 0-3, Domain Match rubric dimension>,
+  "ai_readiness_score": <int 0-3, AI Readiness rubric dimension>,
+  "skills_score":       <int 0-2, Skills Match rubric dimension>,
+  "level_score":        <int 0-2, Level & Scope rubric dimension>,
+  "total_score":        <int, domain_score + ai_readiness_score + skills_score + level_score>,
+  "track":              <"AI" | "ADTECH" | "DUAL" | "LOW MATCH">,
+  "tier":               <"Tier 1" | "Tier 2" | "Tier 3" | "Skip">,
+  "hard_skip":          <true | false>,
+  "hard_skip_reason":   <"reason string if hard_skip is true, else empty string">,
+  "recommended_resume": <"A" | "B">,
+  "reason":             <"2-3 sentence explanation of the score and fit">
+}
+
+Scoring rules:
+- total_score = domain_score + ai_readiness_score + skills_score + level_score  (max 10)
+- track: "DUAL" if domain_score >= 2 AND ai_readiness_score >= 2; "AI" if ai_readiness_score == 3; "ADTECH" if domain_score == 3 AND ai_readiness_score < 2; else "LOW MATCH"
+- tier: total_score >= 9 → "Tier 1"; 7-8 → "Tier 2"; 5-6 → "Tier 3"; < 5 → "Skip"
+- hard_skip: true if ANY of these apply:
+    * total_score <= 6
+    * Salary top of range clearly under $200K (if visible in the description)
+    * Job requires production Python or TypeScript as a hard requirement
+    * Role is sales, revenue, or account management — not product
+    * Company is an agency, not a product company
+- recommended_resume: "B" if ai_readiness_score == 3; "A" if domain is adtech-specific; else "B"
+- ai_score = same as ai_readiness_score
+- adtech_score = domain_score when domain is adtech-specific, else 0
+""".strip()
+
+
+def build_prompt(job: dict) -> str:
+    title   = job.get("title", "")
+    company = job.get("company", "")
+    loc     = job.get("location", "")
+    salary  = job.get("salary_text", "") or "not listed"
+    desc    = (job.get("description", "") or "")
+
+    return f"""Score this job posting for the candidate below using the eval framework rubric.
+
+JOB POSTING:
+Title:    {title}
+Company:  {company}
+Location: {loc}
+Salary:   {salary}
+Description:
+{desc}
+
+---
+CANDIDATE PROFILE:
+{CANDIDATE_PROFILE}
+{RESUME_SECTION}
+
+---
+EVAL FRAMEWORK RUBRIC:
+{rubric_text}
+
+---
+{JSON_SCHEMA}"""
+
+
+def _call_claude(prompt: str) -> Optional[dict]:
+    """
+    Makes one Claude API call and parses the JSON response.
+    Returns the parsed dict, or raises ValueError/APIError on failure.
+    """
+    msg = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=512,
+        system=GUARDRAILS,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw = msg.content[0].text.strip()
+
+    if not raw:
+        raise ValueError("Claude returned an empty response")
+
+    # Strip markdown code fences if Claude included them despite instructions
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+
+    return json.loads(raw)  # raises json.JSONDecodeError if unparseable
+
+
+def score_job(job: dict) -> Optional[dict]:
+    """
+    Scores one job with up to 2 Claude attempts.
+    Attempt 1 fails → wait 2 s → attempt 2.
+    Both fail → log and return None so the run continues.
+    """
+    job_id = job.get("job_id", "")
+    prompt = build_prompt(job)
+
+    for attempt in (1, 2):
+        try:
+            return _call_claude(prompt)
+        except (ValueError, json.JSONDecodeError) as e:
+            if attempt == 1:
+                print(f"  [retry] Attempt 1 failed for {job_id} ({e}) — retrying in 2 s ...", file=sys.stderr)
+                time.sleep(2)
+            else:
+                print(f"  [error] Attempt 2 also failed for {job_id} ({e}) — skipping.", file=sys.stderr)
+        except anthropic.APIError as e:
+            if attempt == 1:
+                print(f"  [retry] API error on attempt 1 for {job_id} ({e}) — retrying in 2 s ...", file=sys.stderr)
+                time.sleep(2)
+            else:
+                print(f"  [error] API error on attempt 2 for {job_id} ({e}) — skipping.", file=sys.stderr)
+
+    return None
+
+
+# ── 4. Main ───────────────────────────────────────────────────────────────────
+
+# --preview N  → score N rows, print raw JSON, do NOT write to sheet
+PREVIEW_MODE  = "--preview" in sys.argv
+PREVIEW_LIMIT = 5
+if PREVIEW_MODE:
+    try:
+        PREVIEW_LIMIT = int(sys.argv[sys.argv.index("--preview") + 1])
+    except (IndexError, ValueError):
+        PREVIEW_LIMIT = 5
+
+# --limit N  → score and write only N rows, then stop
+LIMIT_MODE  = "--limit" in sys.argv
+LIMIT_COUNT = None
+if LIMIT_MODE:
+    try:
+        LIMIT_COUNT = int(sys.argv[sys.argv.index("--limit") + 1])
+    except (IndexError, ValueError):
+        LIMIT_COUNT = 10
+
+print("\nOpening sheet ...")
+sheet = sheets.open_or_create_sheet()
+
+print("Reading rows ...")
+all_rows = sheets.get_all_rows_with_numbers(sheet)
+
+# Filter to rows that need scoring
+to_score = [
+    r for r in all_rows
+    if not str(r.get("ai_score", "")).strip()
+    and not str(r.get("adtech_score", "")).strip()
+    and r.get("status", "").lower() not in USER_OWNED_STATUSES
+]
+
+if PREVIEW_MODE:
+    to_score = to_score[:PREVIEW_LIMIT]
+    print(f"  PREVIEW MODE — scoring {len(to_score)} row(s), nothing will be written to the sheet.\n")
+elif LIMIT_MODE:
+    to_score = to_score[:LIMIT_COUNT]
+    print(f"  LIMIT MODE — scoring first {len(to_score)} rows only, will write to sheet.\n")
+else:
+    print(f"  {len(all_rows)} total rows | {len(to_score)} unscored and eligible\n")
+
+if not to_score:
+    print("Nothing to score. Exiting.")
+    sys.exit(0)
+
+# ── 5. Score each job ─────────────────────────────────────────────────────────
+
+updates   = []
+failed    = []
+counters  = Counter()
+
+for i, row in enumerate(to_score, 1):
+    job_id  = row.get("job_id", "")
+    title   = row.get("title", "")
+    company = row.get("company", "")
+    print(f"{'='*55}")
+    print(f"[{i}/{len(to_score)}] {title} @ {company}")
+    print(f"  job_id: {job_id}")
+    if i == 1:
+        print(f"  description chars: {len(row.get('description', '') or '')}")
+
+    result = score_job(row)
+
+    if result is None:
+        failed.append(job_id)
+        counters["errors"] += 1
+        time.sleep(CALL_DELAY_SECONDS)
+        continue
+
+    if PREVIEW_MODE:
+        # Print raw JSON and stop — do not collect for writing
+        print(f"\n  RAW JSON RESPONSE:")
+        print(json.dumps(result, indent=4))
+        time.sleep(CALL_DELAY_SECONDS)
+        continue
+
+    # ── Map Claude output → sheet columns ──
+    total  = result.get("total_score", 0)
+    track  = result.get("track", "LOW MATCH")
+    tier   = result.get("tier", "Skip")
+    skip   = result.get("hard_skip", True)
+    reason = result.get("reason", "")
+    resume = result.get("recommended_resume", "B")
+
+    match_flag        = track
+    recommended_track = f"{tier} | {track}"
+
+    if skip or tier == "Skip":
+        status = "low match"
+    elif tier in ("Tier 1", "Tier 2"):
+        status = "ready to apply"
+    else:
+        status = "spray"
+
+    current_status = str(row.get("status", "")).strip().lower()
+    write_status   = current_status in ("", "new")
+
+    updates.append({
+        "row_num":           row["_row_num"],
+        "ai_score":          result.get("ai_score", 0),
+        "adtech_score":      result.get("adtech_score", 0),
+        "match_flag":        match_flag,
+        "recommended_track": recommended_track,
+        "notes":             reason,
+        "status":            status,
+        "write_status":      write_status,
+    })
+
+    counters[tier]  += 1
+    counters[track] += 1
+    if skip:
+        counters["hard_skip"] += 1
+
+    print(f"    score={total}  tier={tier}  track={track}  resume={resume}  hard_skip={skip}")
+    time.sleep(CALL_DELAY_SECONDS)
+
+# ── 6. Write all scores in one batch (skipped in preview mode) ───────────────
+
+if PREVIEW_MODE:
+    print(f"\n{'='*55}")
+    print("PREVIEW COMPLETE — sheet unchanged. Run without --preview to write scores.")
+    sys.exit(0)
+
+if updates:
+    print(f"\nWriting {len(updates)} score rows to sheet ...")
+    sheets.batch_write_scores(sheet, updates)
+    print("  Done.")
+
+if failed:
+    print(f"\n  [warning] {len(failed)} job(s) failed and were skipped:")
+    for jid in failed:
+        print(f"    {jid}")
+
+# ── 7. Summary ────────────────────────────────────────────────────────────────
+
+scored = len(updates)
+print(f"""
+{'='*45}
+SCORING COMPLETE
+{'='*45}
+Total scored:      {scored}
+Tier 1:            {counters.get('Tier 1', 0)}
+Tier 2:            {counters.get('Tier 2', 0)}
+Tier 3:            {counters.get('Tier 3', 0)}
+Skip / low match:  {counters.get('Skip', 0)}
+Hard skips:        {counters.get('hard_skip', 0)}
+---
+AI track:          {counters.get('AI', 0)}
+ADTECH track:      {counters.get('ADTECH', 0)}
+DUAL:              {counters.get('DUAL', 0)}
+LOW MATCH:         {counters.get('LOW MATCH', 0)}
+Errors:            {counters.get('errors', 0)}
+{'='*45}
+""")

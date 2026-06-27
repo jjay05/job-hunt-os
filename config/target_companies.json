@@ -1,0 +1,60 @@
+{
+  "greenhouse_slugs": [
+    "moloco",
+    "applovin",
+    "reddit",
+    "pinterest",
+    "instacart",
+    "fetch",
+    "attentive",
+    "databricks",
+    "asana",
+    "datadog",
+    "cloudflare",
+    "elastic",
+    "mongodb",
+    "cockroachlabs",
+    "amplitude",
+    "mixpanel",
+    "hightouch",
+    "braze",
+    "postman",
+    "vercel",
+    "webflow",
+    "figma",
+    "labelbox",
+    "scaleai",
+    "anthropic",
+    "stripe",
+    "affirm",
+    "coinbase",
+    "sofi",
+    "robinhood",
+    "brex",
+    "chime",
+    "airbnb",
+    "lyft",
+    "faire",
+    "flexport",
+    "doordashusa",
+    "tripadvisor",
+    "togetherai"
+  ],
+  "_not_on_greenhouse": {
+    "ashby": [
+      "ironclad",
+      "rippling",
+      "cohere",
+      "perplexity-ai",
+      "wandb",
+      "moveworks",
+      "anyscale",
+      "mistral"
+    ],
+    "lever": [
+      "retool",
+      "thumbtack",
+      "uber"
+    ]
+  }
+}

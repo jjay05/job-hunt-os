@@ -1,0 +1,88 @@
+{
+  "_comment": "Two-track Job Hunt OS config. Every job is scored against BOTH tracks. If both clear threshold, the digest flags it as a dual match and you pick the resume. Tailoring skill uses track.resume_path. Edit anytime.",
+  "candidate": {
+    "name": "Juhi Jain",
+    "location": "Seattle, WA",
+    "email": "juhijaindtu@gmail.com",
+    "linkedin": "https://www.linkedin.com/in/juhi-jain-4024a7104/",
+    "yoe": 10,
+    "status": "Open to work. Left LG Ad Solutions Apr 2026 for a deliberate transition into AI-first product roles."
+  },
+  "shared": {
+    "locations": ["Seattle, WA", "Remote (US)"],
+    "remote_preference": "Remote preferred. Hybrid or relocation acceptable only for top-tier AI companies (e.g. SF-based labs).",
+    "ic_or_manager": "either",
+    "role_priority": "Visibility and impact over title or IC-vs-manager track.",
+    "salary": {
+      "tc_floor": 200000,
+      "tc_target": 300000,
+      "tc_ceiling_for_pipeline": 320000,
+      "note": "200k TC floor applies to BOTH tracks. Flexible below floor only for dream-tier AI labs."
+    },
+    "seniority_band": ["Senior", "Staff", "Principal", "Group PM", "Associate Director", "Director"]
+  },
+  "dual_match_behavior": "If a job clears threshold on both tracks, flag it in the digest as DUAL MATCH and let Juhi pick the resume. Do not auto-select.",
+  "match_threshold": 6,
+  "tracks": {
+    "ai": {
+      "label": "AI PM (adtech or non-adtech)",
+      "resume_path": "resume/resume_ai.md",
+      "positioning": "AI-first, domain-agnostic 0-to-1 builder now building agentic AI systems hands-on.",
+      "target_roles": [
+        "AI Product Manager",
+        "Agentic AI Product Manager",
+        "Applied AI Product Manager",
+        "Forward Deployed Product Manager",
+        "Principal Product Manager",
+        "Staff Product Manager",
+        "Group Product Manager",
+        "Senior Product Manager",
+        "Director, Product",
+        "AI Strategy", 
+        "Product Strategy"
+      ],
+      "domain_preference": "Domain-agnostic. AI must be core to the product, not a bolt-on.",
+      "must_have_signals": ["AI", "LLM", "agent", "agentic", "ML", "applied AI", "product strategy", "0 to 1"],
+      "boost_signals": ["foundation models", "frontier models", "RAG", "evals", "guardrails", "inference cost", "human in the loop", "automation", "decision support"],
+      "dealbreakers": [
+        "AI is marketing only: thin wrapper, not building with models",
+        "PM is order-taker; metrics hidden in a data science black box",
+        "No AI in the core product",
+        "Bureaucratic, slow, legacy enterprise"
+      ]
+    },
+    "adtech": {
+      "label": "Adtech PM",
+      "resume_path": "resume/resume_adtech.md",
+      "positioning": "Programmatic CTV and identity 0-to-1 builder with $400M business ownership and deep marketplace expertise.",
+      "target_roles": [
+        "Principal Product Manager",
+        "Group Product Manager",
+        "Staff Product Manager",
+        "Senior Product Manager",
+        "Associate Director, Product",
+        "Director, Product",
+        "Product Strategy"
+      ],
+      "domain_preference": "Adtech, RMN, programmatic, CTV, identity, marketplace, supply-demand platforms.",
+      "must_have_signals": ["adtech", "programmatic", "CTV", "DSP", "SSP", "RMN", "retail media", "identity", "attribution", "marketplace", "supply", "demand"],
+      "boost_signals": ["OpenRTB", "header bidding", "monetization", "yield", "fraud", "privacy", "consent", "UID2", "RampID", "0 to 1", "AI", "ML"],
+      "dealbreakers": [
+        "Pure sales or account management role, not product",
+        "Bureaucratic, slow, legacy enterprise",
+        "No 0-to-1 or platform scope; pure maintenance"
+      ]
+    }
+  },
+  "company_profile": {
+    "stage": "Series B+ startups (post-PMF, scaling) OR established 1,000 to 10,000 person companies with a startup mindset",
+    "avoid": "Massive enterprises, slow-moving orgs, non-AI-forward legacy companies",
+    "dream_tier": ["OpenAI", "Anthropic", "AI-forward labs building models"],
+    "examples_named": ["Moloco", "Databricks", "Perplexity", "Netflix", "Microsoft Azure AI", "Stripe"]
+  },
+  "context_library": [
+    "config/career-plan.md",
+    "config/story-to-sell.md",
+    "config/experience-library.md"
+  ]
+}
