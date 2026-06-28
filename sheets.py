@@ -25,7 +25,7 @@ SCOPES = [
 COLUMNS = [
     "job_id", "title", "company", "location", "remote", "salary_text", "url",
     "source", "posted_at", "ai_score", "adtech_score", "match_flag",
-    "recommended_track", "cover_letter", "status", "notes",
+    "recommended_track", "cover_letter", "status", "notes", "description",
 ]
 
 # Maps column name → column number (1-based) so we can update specific cells later
@@ -108,6 +108,7 @@ def append_new_jobs(sheet, jobs: list) -> int:
             "",       # cover_letter   — filled by cover letter step (step 2c)
             "new",    # status         — default until processed
             "",       # notes
+            (job.get("description") or "")[:8000],  # description — up to 8000 chars
         ])
 
     # append_rows sends all rows in a single API call (much faster than one at a time)

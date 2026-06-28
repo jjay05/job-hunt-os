@@ -46,13 +46,21 @@ def fetch_jsearch(query: str) -> list:
         "num_pages":  "5",
         "date_posted": "month",
     }
-    try:
-        resp = requests.get(JSEARCH_URL, headers=JSEARCH_HEADERS, params=params, timeout=30)
-        resp.raise_for_status()
-        return resp.json().get("data", {}).get("jobs", [])
-    except requests.RequestException as e:
-        print(f"  [warning] JSearch failed for {query!r}: {e}", file=sys.stderr)
-        return []
+    for attempt in (1, 2):
+        try:
+            resp = requests.get(JSEARCH_URL, headers=JSEARCH_HEADERS, params=params, timeout=60)
+            resp.raise_for_status()
+            return resp.json().get("data", {}).get("jobs", [])
+        except requests.Timeout as e:
+            if attempt == 1:
+                print(f"  [retry] JSearch timed out for {query!r} — retrying in 10 s ...", file=sys.stderr)
+                time.sleep(10)
+            else:
+                print(f"  [warning] JSearch timed out again for {query!r} — skipping.", file=sys.stderr)
+        except requests.RequestException as e:
+            print(f"  [warning] JSearch failed for {query!r}: {e}", file=sys.stderr)
+            return []  # non-timeout errors: do not retry
+    return []
 
 
 def normalize_jsearch(job: dict) -> dict:

@@ -6,6 +6,7 @@ public Greenhouse jobs board API. No auth required.
 import json
 import os
 import sys
+import time
 from html.parser import HTMLParser
 
 import requests
@@ -97,6 +98,7 @@ def fetch_greenhouse_jobs() -> list:
     all_jobs = []
     for slug in GREENHOUSE_SLUGS:
         all_jobs.extend(_fetch_company(slug))
+        time.sleep(0.5)
 
     # Filter to PM-relevant titles only — same logic as job_search.py pre-filter
     before = len(all_jobs)
