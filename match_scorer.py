@@ -9,6 +9,7 @@ import os
 import sys
 import time
 from collections import Counter
+from datetime import datetime
 from typing import Optional
 
 import anthropic
@@ -30,7 +31,7 @@ BASE = os.path.dirname(__file__)
 USER_OWNED_STATUSES = {"applied", "interviewing", "rejected", "skipped"}
 
 # Delay between Claude calls to stay well inside rate limits
-CALL_DELAY_SECONDS = 0.5
+CALL_DELAY_SECONDS = 0.1
 
 # ── 2. Load context files ────────────────────────────────────────────────────
 
@@ -97,13 +98,29 @@ ADTECH TRACK must-have signals: {', '.join(_tracks['adtech']['must_have_signals'
 ADTECH TRACK dealbreakers: {'; '.join(_tracks['adtech']['dealbreakers'])}
 """.strip()
 
-RESUME_SECTION = ""
-if resume_ai:
-    RESUME_SECTION += f"\n\n--- RESUME VERSION B (AI / Builder track) ---\n{resume_ai}"
-if resume_adtech:
-    RESUME_SECTION += f"\n\n--- RESUME VERSION A (Adtech track) ---\n{resume_adtech}"
-if not RESUME_SECTION:
-    RESUME_SECTION = "\n\n[Resumes not yet on disk — score from candidate profile above]"
+RESUME_SECTION = """
+--- RESUME VERSION B (AI / Builder track) — key skills & experience ---
+- Associate Director, PM at LG Ads (~10 yrs PM total); seniority band Senior PM → AD
+- AI workflows built: real-time creative scanning & approval ($18M projected), AI creative resizing (1 wk→1 min), campaign troubleshooting chatbot (50% ticket cut), Segment Portal AI agent (10% ops bandwidth freed)
+- 0-to-1 platforms: River OS TV OS (100K TVs; voice recommender adopted by LGE on 100M+ TVs), programmatic home screen monetization ($16M ARR, first OEM in industry), Alt ID/identity infra ($3M rev, 3X bid rates, 60% CTV coverage), Supply Diagnostics Platform ($1.3M)
+- ML systems: Inventory Quality ML (invalid traffic detection, $4M impact, 20% margin lift), supply-demand matching ($1M)
+- Privacy/compliance: GDPR, CCPA, DNT/LMT — identified $6M EU GDPR gap, drove 60%+ opt-in
+- Can claim: agentic workflow design, LLM orchestration, prompt engineering, guardrails design, eval framework design
+- Cannot claim: production Python/TypeScript code, LLM fine-tuning, RAG pipeline, vector DBs
+- Led/mentored 4 PMs + 6 solution engineers; ISB PGP Management; DeepLearning.AI certified
+
+--- RESUME VERSION A (Adtech track) — key skills & experience ---
+- Same person; emphasis on programmatic advertising, CTV, identity, and adtech platform expertise
+- Owned $400M programmatic business: demand, supply, identity, monetization across CTV video and display
+- Identity: UID2, RampID, Alt ID + 3 others, Google PAL, APS — 60% O&O CTV coverage, 3X bid rates
+- Programmatic monetization: 0-to-1 home screen inventory; 10+ DSPs/SSPs/resellers onboarded; $16M ARR
+- Ad server: inventory filtering, waterfall management, productionized maintenance suite
+- Attribution: 0-to-1 offline attribution (IP-to-Household), Share of Voice reporting
+- Privacy gatekeeper: GDPR, CCPA, DNT/LMT, DPAs — negotiated with Google, LG HQ, legal counsel
+- Inventory quality: ML-based IVT detection ($4M), supply-demand matching ($1M), multi-tag calling ($1.2M)
+- B2B partnerships: DSPs, SSPs, publishers, OEM (LG HQ); OOH/hotel/in-vehicle expansion POCs
+- CTV/OTT: River OS, voice recommender (100M+ TVs), app partnerships (Prime, Hotstar, Zee5, SonyLiv)
+""".strip()
 
 # ── 3. Claude scoring ─────────────────────────────────────────────────────────
 
@@ -181,9 +198,10 @@ def _call_claude(prompt: str) -> Optional[dict]:
     """
     msg = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=512,
+        max_tokens=500,
         system=GUARDRAILS,
         messages=[{"role": "user", "content": prompt}],
+        timeout=30,
     )
     raw = msg.content[0].text.strip()
 
@@ -218,6 +236,12 @@ def score_job(job: dict) -> Optional[dict]:
                 time.sleep(2)
             else:
                 print(f"  [error] Attempt 2 also failed for {job_id} ({e}) — skipping.", file=sys.stderr)
+        except anthropic.APITimeoutError as e:
+            if attempt == 1:
+                print(f"  [retry] API timeout on attempt 1 for {job_id} — retrying in 10 s ...", file=sys.stderr)
+                time.sleep(10)
+            else:
+                print(f"  [error] API timeout on attempt 2 for {job_id} — skipping.", file=sys.stderr)
         except anthropic.APIError as e:
             if attempt == 1:
                 print(f"  [retry] API error on attempt 1 for {job_id} ({e}) — retrying in 2 s ...", file=sys.stderr)
@@ -286,7 +310,7 @@ for i, row in enumerate(to_score, 1):
     title   = row.get("title", "")
     company = row.get("company", "")
     print(f"{'='*55}")
-    print(f"[{i}/{len(to_score)}] {title} @ {company}")
+    print(f"[{i}/{len(to_score)}] {datetime.now().strftime('%H:%M:%S')}  {title} @ {company}")
     print(f"  job_id: {job_id}")
     if i == 1:
         print(f"  description chars: {len(row.get('description', '') or '')}")
