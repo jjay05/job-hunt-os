@@ -166,9 +166,9 @@ def build_prompt(job: dict) -> str:
     company = job.get("company", "")
     loc     = job.get("location", "")
     salary  = job.get("salary_text", "") or "not listed"
-    desc    = (job.get("description", "") or "")
+    desc    = (job.get("description", "") or "")[:5000]
 
-    return f"""Score this job posting for the candidate below using the eval framework rubric.
+    return f"""Score this job posting for the candidate below.
 
 JOB POSTING:
 Title:    {title}
@@ -182,10 +182,6 @@ Description:
 CANDIDATE PROFILE:
 {CANDIDATE_PROFILE}
 {RESUME_SECTION}
-
----
-EVAL FRAMEWORK RUBRIC:
-{rubric_text}
 
 ---
 {JSON_SCHEMA}"""
@@ -243,6 +239,8 @@ def score_job(job: dict) -> Optional[dict]:
             else:
                 print(f"  [error] API timeout on attempt 2 for {job_id} — skipping.", file=sys.stderr)
         except anthropic.APIError as e:
+            if hasattr(e, "status_code") and e.status_code == 400 and "credit" in str(e).lower():
+                raise RuntimeError("CREDIT_EXHAUSTED")
             if attempt == 1:
                 print(f"  [retry] API error on attempt 1 for {job_id} ({e}) — retrying in 2 s ...", file=sys.stderr)
                 time.sleep(2)
@@ -253,6 +251,9 @@ def score_job(job: dict) -> Optional[dict]:
 
 
 # ── 4. Main ───────────────────────────────────────────────────────────────────
+
+# --estimate  → count unscored rows, estimate token usage and cost, then exit
+ESTIMATE_MODE = "--estimate" in sys.argv
 
 # --preview N  → score N rows, print raw JSON, do NOT write to sheet
 PREVIEW_MODE  = "--preview" in sys.argv
@@ -295,6 +296,58 @@ elif LIMIT_MODE:
 else:
     print(f"  {len(all_rows)} total rows | {len(to_score)} unscored and eligible\n")
 
+if ESTIMATE_MODE:
+    # Sonnet 4 pricing (per 1M tokens)
+    INPUT_PRICE_PER_M  = 3.00
+    OUTPUT_PRICE_PER_M = 15.00
+    AVG_OUTPUT_TOKENS  = 250  # typical JSON response
+
+    # Sample 10 evenly spaced rows to estimate average prompt size
+    sample_size = min(10, len(to_score))
+    step = max(1, len(to_score) // sample_size)
+    sample = [to_score[i] for i in range(0, len(to_score), step)][:sample_size]
+
+    total_sample_tokens = 0
+    for row in sample:
+        prompt = build_prompt(row)
+        resp = client.messages.count_tokens(
+            model="claude-sonnet-4-6",
+            system=GUARDRAILS,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        total_sample_tokens += resp.input_tokens
+
+    avg_input_tokens = total_sample_tokens // len(sample)
+    n = len(to_score)
+
+    total_input  = avg_input_tokens * n
+    total_output = AVG_OUTPUT_TOKENS * n
+    cost_input   = total_input  / 1_000_000 * INPUT_PRICE_PER_M
+    cost_output  = total_output / 1_000_000 * OUTPUT_PRICE_PER_M
+    total_cost   = cost_input + cost_output
+    est_minutes  = (n * 10) // 60  # ~10s per job
+
+    print(f"""
+{'='*50}
+COST ESTIMATE — match_scorer.py
+{'='*50}
+Unscored jobs:        {n}
+Sample size:          {len(sample)} rows
+Avg input tokens:     {avg_input_tokens:,} per call
+Avg output tokens:    {AVG_OUTPUT_TOKENS} per call (estimated)
+
+Total input tokens:   {total_input:,}
+Total output tokens:  {total_output:,}
+
+Input cost  ($3/M):   ${cost_input:.2f}
+Output cost ($15/M):  ${cost_output:.2f}
+TOTAL COST:           ${total_cost:.2f}
+
+Est. runtime:         ~{est_minutes} min at ~10s/job
+{'='*50}
+""")
+    sys.exit(0)
+
 if not to_score:
     print("Nothing to score. Exiting.")
     sys.exit(0)
@@ -304,6 +357,7 @@ if not to_score:
 updates   = []
 failed    = []
 counters  = Counter()
+FLUSH_EVERY = 25  # write to sheet every N scored jobs to preserve progress
 
 for i, row in enumerate(to_score, 1):
     job_id  = row.get("job_id", "")
@@ -312,10 +366,20 @@ for i, row in enumerate(to_score, 1):
     print(f"{'='*55}")
     print(f"[{i}/{len(to_score)}] {datetime.now().strftime('%H:%M:%S')}  {title} @ {company}")
     print(f"  job_id: {job_id}")
-    if i == 1:
-        print(f"  description chars: {len(row.get('description', '') or '')}")
+    print(f"  description chars: {len(row.get('description', '') or '')}")
 
-    result = score_job(row)
+    try:
+        result = score_job(row)
+    except RuntimeError as e:
+        if str(e) == "CREDIT_EXHAUSTED":
+            print(f"\n[FATAL] Anthropic credit balance exhausted.", file=sys.stderr)
+            print(f"  Top up at console.anthropic.com → Plans & Billing, then re-run.", file=sys.stderr)
+            if updates and not PREVIEW_MODE:
+                print(f"  Writing {len(updates)} scores collected so far ...")
+                sheets.batch_write_scores(sheet, updates)
+                print(f"  Saved. Re-run after topping up — scored rows will be skipped automatically.")
+            sys.exit(1)
+        raise
 
     if result is None:
         failed.append(job_id)
@@ -369,6 +433,12 @@ for i, row in enumerate(to_score, 1):
 
     print(f"    score={total}  tier={tier}  track={track}  resume={resume}  hard_skip={skip}")
     time.sleep(CALL_DELAY_SECONDS)
+
+    if not PREVIEW_MODE and len(updates) >= FLUSH_EVERY:
+        print(f"\n  [flush] Writing {len(updates)} scores to sheet ...")
+        sheets.batch_write_scores(sheet, updates)
+        updates.clear()
+        print(f"  [flush] Done.\n")
 
 # ── 6. Write all scores in one batch (skipped in preview mode) ───────────────
 

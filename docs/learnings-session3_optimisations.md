@@ -45,6 +45,31 @@
 - Guardrails inline fallback works correctly when `guardrails/guardrails.md` is missing — logs a warning, does not crash
 - `batch_write_scores` hardcodes column positions — known fragility, deferred until after first clean full run confirms scores are correct
 
+## SCORER BUGS & COST FIXES (end of Session 3, second pass)
+
+### BUG: All scores written at the very end — progress lost on any interruption
+`updates` list accumulated all scored jobs; `batch_write_scores` was called only once after the full loop. Any crash (credit exhaustion, sleep, kill) wiped all progress and forced a full restart.
+- Fix: flush `updates` to sheet every 25 jobs inside the loop, then clear the list. Final flush after loop catches remainder.
+- Worst-case loss on crash is now 25 jobs, not the entire run.
+
+### BUG: Credit exhaustion caused every remaining job to be retried twice
+HTTP 400 "credit balance too low" was caught by the generic `APIError` handler, which retried after 2s sleep. The retry also failed. The script then moved to the next job and failed it twice too — running through all remaining jobs 2× before stopping.
+- Fix: in the `APIError` handler, check `e.status_code == 400 and "credit" in str(e).lower()` — if true, raise `RuntimeError("CREDIT_EXHAUSTED")`. In the main loop, catch this, flush pending scores to sheet, print a clear top-up message, and `sys.exit(1)`.
+- Result: on credit exhaustion, the script saves all scored-so-far and exits cleanly after the first failing job instead of burning through every remaining one.
+
+### COST: Eval framework rubric (8.6KB) was included in every prompt unnecessarily
+`rubric_text` loaded from `config/job_fit_eval_framework.md` was appended to every Claude call. The file contains cover letter rules, LinkedIn outreach tips, compensation negotiation advice, and job search hacks — none relevant to the scorer. The `JSON_SCHEMA` block already encodes the complete scoring rubric (all four dimensions, tier rules, hard-skip logic, track derivation).
+- Fix: removed `rubric_text` from `build_prompt`. Prompt now contains only JOB POSTING + CANDIDATE_PROFILE + RESUME_SECTION + JSON_SCHEMA.
+- Savings: ~2,000–2,500 tokens per call, ~1.9M tokens across 773 jobs.
+
+### COST: Description not truncated in build_prompt
+`desc = (job.get("description", "") or "")` — no truncation. Greenhouse descriptions can be 20K+ chars after HTML stripping. JSearch descriptions are truncated to 8000 chars at ingestion, but Greenhouse descriptions are stored as-is.
+- Fix: `desc = (job.get("description", "") or "")[:5000]` in `build_prompt`. 5K chars is enough for scoring signal.
+
+### MINOR: Description chars only printed for job 1
+`if i == 1: print(f"  description chars: ...")` made it impossible to diagnose thin-description jobs mid-run.
+- Fix: print description chars for every job.
+
 ## MISC
 
 - `config/filters.py` is a Python module inside the `config/` directory — works as a namespace package in Python 3.3+ without needing `__init__.py`

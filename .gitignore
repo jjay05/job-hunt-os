@@ -1,5 +1,10 @@
 .env
 credentials/
+resume/
+config/context_store.json
+config/career-plan.md
+config/story-to-sell.md
+config/job_fit_eval_framework.md
 outputs/
 __pycache__/
 *.pyc
