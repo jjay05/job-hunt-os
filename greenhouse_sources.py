@@ -23,11 +23,14 @@ GREENHOUSE_SLUGS = _config.get("greenhouse_slugs", [])
 
 # ── PM title filter ───────────────────────────────────────────────────────────
 
-from config.filters import PM_TITLE_TERMS, detect_remote
+from config.filters import detect_remote
+
+_search_config = json.loads(open(os.path.join(BASE, "config", "search_config.json")).read())
+TITLE_TERMS = _search_config.get("title_filter_terms", [])
 
 def _is_pm_relevant(title: str) -> bool:
     t = title.strip().lower()
-    return any(term in t for term in PM_TITLE_TERMS)
+    return any(term in t for term in TITLE_TERMS)
 
 # ── HTML stripping ────────────────────────────────────────────────────────────
 

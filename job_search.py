@@ -14,7 +14,12 @@ from dotenv import load_dotenv
 import sheets              # Google Sheets read/write helper
 import apify_sources       # Apify actor fetchers (VC portfolio, Wellfound)
 import greenhouse_sources  # Greenhouse public jobs board API
-from config.filters import PM_TITLE_TERMS, detect_remote
+from config.filters import detect_remote
+
+# ---------- 0. Load context store ----------
+_search_config = json.loads(open(os.path.join(os.path.dirname(__file__), "config", "search_config.json")).read())
+QUERIES      = _search_config.get("search_queries", [])
+TITLE_TERMS  = _search_config.get("title_filter_terms", [])
 
 # ---------- 1. Load secrets ----------
 load_dotenv()
@@ -104,26 +109,6 @@ def normalize_jsearch(job: dict) -> dict:
     }
 
 
-QUERIES = [
-    # Seniority-band queries
-    "Senior Product Manager",
-    "Staff Product Manager",
-    "Principal Product Manager",
-    "Group Product Manager",
-    "Associate Director Product",
-    "Director of Product",
-    # AI-track queries
-    "AI Product Manager",
-    "Product Manager AI",
-    "Agentic AI Product Manager",
-    "Applied AI Product Manager",
-    # Strategy queries
-    "Product Strategy",
-    "AI Strategy",
-    "Strategy Lead Product",
-    "Product Lead AI",
-]
-
 # ---------- 3. Run JSearch ----------
 print(f"\n{'='*50}")
 print(f"JSearch — {len(QUERIES)} queries")
@@ -164,7 +149,7 @@ for source_job_list in [
 
 def is_relevant(job: dict) -> bool:
     title = (job.get("title") or "").strip().lower()
-    return any(term in title for term in PM_TITLE_TERMS)
+    return any(term in title for term in TITLE_TERMS)
 
 
 before    = len(collected)

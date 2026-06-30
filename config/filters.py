@@ -13,12 +13,3 @@ def detect_remote(title: str, location: str, description: str) -> str:
     return "Unknown"
 
 
-PM_TITLE_TERMS = [
-    "product manager", " pm ", "pm,", "pm -", "- pm",
-    "product lead", "product director", "group product",
-    "staff product", "principal product",
-    "associate director product", "director of product",
-    "director, product", "vp product", "head of product",
-    "product owner", "strategy lead", "ai strategy",
-    "product strategy",
-]

@@ -1,0 +1,35 @@
+{
+  "_comment": "Operational config for job_search.py and match_scorer.py. Commit this file — it contains no personal data. Edit search_queries and title_filter_terms for your target role.",
+
+  "search_queries": [
+    "Senior Product Manager",
+    "Staff Product Manager",
+    "Principal Product Manager",
+    "Group Product Manager",
+    "Associate Director Product",
+    "Director of Product",
+    "AI Product Manager",
+    "Product Manager AI",
+    "Agentic AI Product Manager",
+    "Applied AI Product Manager",
+    "Product Strategy",
+    "AI Strategy",
+    "Strategy Lead Product",
+    "Product Lead AI"
+  ],
+
+  "title_filter_terms": [
+    "product manager", " pm ", "pm,", "pm -", "- pm",
+    "product lead", "product director", "group product",
+    "staff product", "principal product",
+    "associate director product", "director of product",
+    "director, product", "vp product", "head of product",
+    "product owner", "strategy lead", "ai strategy",
+    "product strategy"
+  ],
+
+  "scorer_settings": {
+    "model": "claude-sonnet-4-6",
+    "note": "Swap for any Anthropic model. claude-haiku-4-5-20251001 is cheaper and worth testing for scoring tasks."
+  }
+}

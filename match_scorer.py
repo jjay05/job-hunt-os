@@ -43,6 +43,8 @@ def _load(path: str, label: str) -> str:
     return ""
 
 context_store    = json.loads(open(os.path.join(BASE, "config", "context_store.json")).read())
+_search_config   = json.loads(open(os.path.join(BASE, "config", "search_config.json")).read())
+MODEL            = _search_config.get("scorer_settings", {}).get("model", "claude-sonnet-4-6")
 rubric_text      = _load("config/job_fit_eval_framework.md", "eval framework")
 resume_ai        = _load("resume/resume_ai.md",              "AI resume")
 resume_adtech    = _load("resume/resume_adtech.md",          "Adtech resume")
@@ -193,7 +195,7 @@ def _call_claude(prompt: str) -> Optional[dict]:
     Returns the parsed dict, or raises ValueError/APIError on failure.
     """
     msg = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=MODEL,
         max_tokens=500,
         system=GUARDRAILS,
         messages=[{"role": "user", "content": prompt}],
@@ -311,7 +313,7 @@ if ESTIMATE_MODE:
     for row in sample:
         prompt = build_prompt(row)
         resp = client.messages.count_tokens(
-            model="claude-sonnet-4-6",
+            model=MODEL,
             system=GUARDRAILS,
             messages=[{"role": "user", "content": prompt}],
         )
