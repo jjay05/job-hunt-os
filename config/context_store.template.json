@@ -1,0 +1,89 @@
+{
+  "_comment": "Two-track Job Hunt OS config. Copy this file to context_store.json and fill in your own values. Every job is scored against BOTH tracks. If both clear threshold, the digest flags it as a dual match and you pick the resume.",
+  "_setup": "1. Copy to config/context_store.json  2. Fill in your details  3. Never commit context_store.json — it is in .gitignore",
+
+  "candidate": {
+    "name": "Your Full Name",
+    "location": "Your City, State",
+    "email": "your@email.com",
+    "linkedin": "https://www.linkedin.com/in/your-profile/",
+    "yoe": 10,
+    "status": "Brief description of your current status and what you are looking for."
+  },
+
+  "shared": {
+    "locations": ["Your City, State", "Remote (US)"],
+    "remote_preference": "Describe your remote/hybrid/relocation preferences.",
+    "ic_or_manager": "either",
+    "role_priority": "Describe what matters most to you — visibility, impact, title, etc.",
+    "salary": {
+      "tc_floor": 150000,
+      "tc_target": 200000,
+      "tc_ceiling_for_pipeline": 250000,
+      "note": "Set your TC floor. Pipeline surfaces roles up to ceiling to keep volume moving."
+    },
+    "seniority_band": ["Senior", "Staff", "Principal", "Group PM", "Associate Director", "Director"]
+  },
+
+  "dual_match_behavior": "If a job clears threshold on both tracks, flag it as DUAL MATCH and let the user pick the resume. Do not auto-select.",
+  "match_threshold": 6,
+
+  "tracks": {
+    "ai": {
+      "label": "AI PM Track",
+      "resume_path": "resume/resume_ai.md",
+      "positioning": "Describe your AI PM positioning in one sentence.",
+      "target_roles": [
+        "AI Product Manager",
+        "Agentic AI Product Manager",
+        "Applied AI Product Manager",
+        "Principal Product Manager",
+        "Staff Product Manager",
+        "Senior Product Manager",
+        "Director, Product"
+      ],
+      "domain_preference": "Domain-agnostic. AI must be core to the product, not a bolt-on.",
+      "must_have_signals": ["AI", "LLM", "agent", "agentic", "ML", "applied AI"],
+      "boost_signals": ["foundation models", "RAG", "evals", "guardrails", "inference cost", "human in the loop", "automation"],
+      "dealbreakers": [
+        "AI is marketing only — thin wrapper, not building with models",
+        "PM is order-taker with no metrics ownership",
+        "No AI in the core product",
+        "Bureaucratic legacy enterprise"
+      ]
+    },
+    "domain": {
+      "label": "Domain PM Track (rename to match your domain — adtech, fintech, healthtech, etc.)",
+      "resume_path": "resume/resume_domain.md",
+      "positioning": "Describe your domain-specific positioning in one sentence.",
+      "target_roles": [
+        "Principal Product Manager",
+        "Group Product Manager",
+        "Staff Product Manager",
+        "Senior Product Manager",
+        "Associate Director, Product",
+        "Director, Product"
+      ],
+      "domain_preference": "Describe your target domain — programmatic, CTV, marketplace, etc.",
+      "must_have_signals": ["list", "your", "domain", "keywords", "here"],
+      "boost_signals": ["list", "secondary", "signals", "that", "are", "nice", "to", "have"],
+      "dealbreakers": [
+        "Pure sales or account management role, not product",
+        "Bureaucratic legacy enterprise",
+        "No 0-to-1 or platform scope"
+      ]
+    }
+  },
+
+  "company_profile": {
+    "stage": "Describe your target company stage — Series B+, established, startup, etc.",
+    "avoid": "Describe company types you want to avoid.",
+    "dream_tier": ["List your dream companies here"],
+    "examples_named": ["Company A", "Company B", "Company C"]
+  },
+
+  "context_library": [
+    "config/career-plan.md",
+    "config/story-to-sell.md"
+  ]
+}
