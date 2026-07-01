@@ -236,44 +236,9 @@ To base64 encode your service account key:
 base64 -i credentials/sheets_key.json
 ```
 
-**2. Create `.github/workflows/daily_job_search.yml`:**
+**2. Add the workflow file:**
 
-```yaml
-name: Daily Job Discovery
-
-on:
-  schedule:
-    - cron: '0 13 * * *'  # 5am PST = 1pm UTC
-  workflow_dispatch:       # allows manual trigger from GitHub UI
-
-jobs:
-  discover:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Decode Google service account key
-        run: |
-          mkdir -p credentials
-          echo "${{ secrets.GOOGLE_SHEETS_KEY }}" | base64 --decode > credentials/sheets_key.json
-
-      - name: Create .env file
-        run: |
-          echo "RAPIDAPI_KEY=${{ secrets.RAPIDAPI_KEY }}" >> .env
-          echo "APIFY_TOKEN=${{ secrets.APIFY_TOKEN }}" >> .env
-          echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> .env
-
-      - name: Run job discovery
-        run: python3 job_search.py
-```
+The workflow file is already included in the repo at `.github/workflows/daily_job_search.yml` — no need to create it manually.
 
 **3. Push and test:**
 
